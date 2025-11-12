@@ -13,6 +13,16 @@ const server = http.createServer((req, res) => {
     if (filePath === './') {
         filePath = './play.html';
     }
+    
+    // Handle public directory
+    if (filePath.startsWith('./public/') || filePath.startsWith('/public/')) {
+        // Already correct path
+    } else if (req.url.startsWith('/public/')) {
+        filePath = '.' + req.url;
+    } else if (filePath === './mapsize.png' || filePath === '/mapsize.png') {
+        // Redirect mapsize.png to public folder
+        filePath = './public/mapsize.png';
+    }
 
     const extname = String(path.extname(filePath)).toLowerCase();
     const mimeTypes = {
