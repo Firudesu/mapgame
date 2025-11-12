@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Sandbox Multiplayer - Play Now</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+            background: #000;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            cursor: default;
+        }
+
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 14px;
+            z-index: 100;
+            min-width: 200px;
+        }
+
+        #wallet-info {
+            margin-bottom: 10px;
+        }
+
+        #wallet-id {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #4CAF50;
+            word-break: break-all;
+        }
+
+        #stamina-container {
+            margin: 10px 0;
+        }
+
+        #stamina-label {
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+
+        #stamina-bar {
+            width: 100%;
+            height: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        #stamina-fill {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            transition: width 0.3s ease;
+        }
+
+        #controls {
+            margin-top: 15px;
+        }
+
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-right: 10px;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #1976D2;
+        }
+
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        #connect-btn {
+            background: #4CAF50;
+        }
+
+        #connect-btn:hover {
+            background: #45a049;
+        }
+
+        #status {
+            margin-top: 10px;
+            font-size: 11px;
+            color: #aaa;
+        }
+
+        /* Avatar Modal Styles */
+        #avatar-modal {
+            backdrop-filter: blur(5px);
+        }
+
+        #avatar-modal img {
+            border-radius: 4px;
+        }
+
+        #avatar-modal button:hover {
+            opacity: 0.9;
+            transform: scale(1.05);
+        }
+
+        #avatar-modal button:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <div id="hud">
+        <div id="wallet-info">
+            <div style="font-size: 11px; color: #aaa; margin-bottom: 5px;">Wallet:</div>
+            <div id="wallet-id">Not connected</div>
+        </div>
+        <div id="stamina-container">
+            <div id="stamina-label">Stamina: <span id="stamina-value">100</span>/100</div>
+            <div id="stamina-bar">
+                <div id="stamina-fill"></div>
+            </div>
+        </div>
+        <div id="controls">
+            <button id="connect-btn">Connect MetaMask</button>
+            <button id="grid-toggle">Toggle Grid</button>
+        </div>
+        <div id="status">Players: <span id="player-count">0</span>/8</div>
+        <div style="margin-top: 10px; font-size: 10px; color: #888; line-height: 1.4;">
+            <div>🖱️ Click & Drag: Pan</div>
+            <div>🖱️ Scroll: Zoom</div>
+            <div>⌨️ ↑↓: Zoom</div>
+        </div>
+    </div>
+
+    <!-- Avatar Selection Modal -->
+    <div id="avatar-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; overflow-y: auto;">
+        <div style="max-width: 800px; margin: 50px auto; background: #1a1a1a; border-radius: 12px; padding: 30px; color: white;">
+            <h2 style="margin-bottom: 20px; text-align: center;">Select Your Avatar</h2>
+            <div id="avatars-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; margin-bottom: 20px;">
+                <!-- Avatars will be inserted here -->
+            </div>
+            <div style="text-align: center; margin-top: 20px;">
+                <button id="create-default-avatar" style="background: #4CAF50; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                    Create Default Avatar
+                </button>
+                <button id="close-avatar-modal" style="background: #666; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Three.js from CDN -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // NFT Checker Class
+        class NFTChecker {
+            constructor() {
+                // Sandbox NFT Contract Addresses (Ethereum Mainnet)
+                this.sandboxContracts = {
+                    LAND: '0x5cc5b05a8a13e3fbdb0bb9fccd98d38e50f90c38',
+                    ASSET: '0xa342f5d851e866e18ff98f351f2c0b24777648e0',
+                    AVATAR: '0x30cc0553f6fa1faf6d7847891b9b36eb559dc618' // Sandbox Avatar contract
+                };
+                this.apiKey = ''; // Set VITE_ALCHEMY_API_KEY in .env if using Alchemy
+            }
+
+            async checkSandboxNFTs(walletAddress) {
+                if (!walletAddress) return { hasSandboxNFTs: false, nfts: [], count: 0 };
+
+                try {
+                    // Try OpenSea API first (no key needed, but rate limited)
+                    return await this.checkWithOpenSea(walletAddress);
+                } catch (error) {
+                    console.error('Error checking NFTs:', error);
+                    return { hasSandboxNFTs: false, nfts: [], count: 0, error: error.message };
+                }
+            }
+
+            async checkWithOpenSea(walletAddress) {
+                const contractAddresses = Object.values(this.sandboxContracts);
+                const allNFTs = [];
+                const avatars = [];
+
+                for (const contract of contractAddresses) {
+                    try {
+                        const url = `https://api.opensea.io/api/v2/chain/ethereum/account/${walletAddress}/nfts?contract_address=${contract}`;
+                        const response = await fetch(url, {
+                            headers: { 'Accept': 'application/json' }
+                        });
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data.nfts && data.nfts.length > 0) {
+                                allNFTs.push(...data.nfts);
+                                // Check if this is an avatar contract
+                                if (contract.toLowerCase() === this.sandboxContracts.AVATAR.toLowerCase()) {
+                                    avatars.push(...data.nfts);
+                                }
+                            }
+                        } else if (response.status === 429) {
+                            console.warn('OpenSea rate limit - consider using Alchemy API');
+                        }
+                    } catch (error) {
+                        console.warn(`Error checking contract ${contract}:`, error);
+                    }
+                }
+
+                return {
+                    hasSandboxNFTs: allNFTs.length > 0,
+                    nfts: allNFTs,
+                    avatars: avatars,
+                    avatarCount: avatars.length,
+                    count: allNFTs.length
+                };
+            }
+        }
+
+        // Game class
+        class Game {
+            constructor() {
+                this.scene = new THREE.Scene();
+                
+                // Camera setup - will be updated dynamically
+                const aspect = window.innerWidth / window.innerHeight;
+                const viewSize = 2000; // Initial view size
+                this.camera = new THREE.OrthographicCamera(
+                    -viewSize * aspect, viewSize * aspect,
+                    viewSize, -viewSize,
+                    0.1, 1000
+                );
+                
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.players = new Map();
+                this.playerGroup = new THREE.Group();
+                this.gridGroup = new THREE.Group();
+                this.tiles = [];
+                this.currentWallet = null;
+                this.isGridVisible = true;
+                this.wsConnection = null;
+
+                // Camera controls
+                this.zoomLevel = 1.0;
+                this.minZoom = 0.1;
+                this.maxZoom = 7.5; // Increased by 50% (was 5.0)
+                this.cameraPosition = new THREE.Vector3(0, 0, 1000);
+                this.isDragging = false;
+                this.lastMousePos = new THREE.Vector2();
+                this.keys = {};
+
+                // NFT checking
+                this.nftChecker = new NFTChecker();
+                this.hasSandboxNFTs = false;
+                this.selectedAvatar = null;
+                this.availableAvatars = [];
+                this.avatarIcon = null; // Icon placed on map
+
+                this.init();
+            }
+
+            async init() {
+                const container = document.getElementById('canvas-container');
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setClearColor(0x1a1a1a);
+                container.appendChild(this.renderer.domElement);
+
+                this.camera.position.copy(this.cameraPosition);
+                this.camera.lookAt(0, 0, 0);
+                this.updateCamera();
+
+                // Load map
+                await this.loadMap();
+                // Create 8x8 smaller grid: 16*8 = 128 cols, 14*8 = 112 rows, 128/8 = 16px tiles
+                this.createGrid(128, 112, 16);
+
+                this.scene.add(this.playerGroup);
+                this.setupEventListeners();
+                this.setupWebSocket();
+                this.animate();
+            }
+
+            async loadMap() {
+                return new Promise((resolve, reject) => {
+                    const loader = new THREE.TextureLoader();
+                    loader.load(
+                        './public/mapsize.png',
+                        (texture) => {
+                            const geometry = new THREE.PlaneGeometry(2048, 1852);
+                            const material = new THREE.MeshBasicMaterial({ map: texture });
+                            const mesh = new THREE.Mesh(geometry, material);
+                            mesh.position.set(0, 0, 0);
+                            this.scene.add(mesh);
+                            resolve();
+                        },
+                        undefined,
+                        reject
+                    );
+                });
+            }
+
+            createGrid(cols, rows, tileSize) {
+                const halfWidth = 1024;
+                const halfHeight = 926;
+                const gridMaterial = new THREE.LineBasicMaterial({
+                    color: 0x00ff00,
+                    opacity: 0.3,
+                    transparent: true
+                });
+
+                // Vertical lines
+                for (let i = 0; i <= cols; i++) {
+                    const x = -halfWidth + (i * tileSize);
+                    const geometry = new THREE.BufferGeometry().setFromPoints([
+                        new THREE.Vector3(x, -halfHeight, 1),
+                        new THREE.Vector3(x, halfHeight, 1)
+                    ]);
+                    const line = new THREE.Line(geometry, gridMaterial);
+                    this.gridGroup.add(line);
+                }
+
+                // Horizontal lines
+                for (let i = 0; i <= rows; i++) {
+                    const y = halfHeight - (i * tileSize);
+                    const geometry = new THREE.BufferGeometry().setFromPoints([
+                        new THREE.Vector3(-halfWidth, y, 1),
+                        new THREE.Vector3(halfWidth, y, 1)
+                    ]);
+                    const line = new THREE.Line(geometry, gridMaterial);
+                    this.gridGroup.add(line);
+                }
+
+                // Create tiles
+                for (let row = 0; row < rows; row++) {
+                    for (let col = 0; col < cols; col++) {
+                        const tileX = -halfWidth + (col * tileSize) + (tileSize / 2);
+                        const tileY = halfHeight - (row * tileSize) - (tileSize / 2);
+                        this.tiles.push({
+                            id: `tile_${col}_${row}`,
+                            x: tileX,
+                            y: tileY
+                        });
+                    }
+                }
+
+                this.scene.add(this.gridGroup);
+            }
+
+            setupWebSocket() {
+                try {
+                    this.wsConnection = new WebSocket('ws://localhost:8080');
+                    this.wsConnection.onopen = () => {
+                        console.log('Connected to WebSocket');
+                        this.wsConnection.send(JSON.stringify({ type: 'getPlayers' }));
+                    };
+                    this.wsConnection.onmessage = (event) => {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === 'players') {
+                            Object.values(msg.data).forEach(p => this.addPlayer(p));
+                        } else if (msg.type === 'playerJoined') {
+                            this.addPlayer(msg.data);
+                        } else if (msg.type === 'playerLeft') {
+                            this.removePlayer(msg.data.walletID);
+                        }
+                    };
+                    this.wsConnection.onerror = () => {
+                        console.log('WebSocket not available - running local-only');
+                    };
+                } catch (e) {
+                    console.log('WebSocket not available - running local-only');
+                }
+            }
+
+            setupEventListeners() {
+                document.getElementById('connect-btn').addEventListener('click', () => this.connectMetaMask());
+                document.getElementById('grid-toggle').addEventListener('click', () => this.toggleGrid());
+                
+                // Window resize
+                window.addEventListener('resize', () => {
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                    this.updateCamera();
+                });
+
+                // Mouse controls for panning
+                const canvas = this.renderer.domElement;
+                
+                canvas.addEventListener('mousedown', (e) => {
+                    if (e.button === 0) { // Left mouse button
+                        this.isDragging = true;
+                        this.lastMousePos.set(e.clientX, e.clientY);
+                        canvas.style.cursor = 'grabbing';
+                    }
+                });
+
+                canvas.addEventListener('mousemove', (e) => {
+                    if (this.isDragging) {
+                        const deltaX = e.clientX - this.lastMousePos.x;
+                        const deltaY = e.clientY - this.lastMousePos.y;
+                        
+                        // Convert screen delta to world delta
+                        const aspect = window.innerWidth / window.innerHeight;
+                        const viewSize = 2000 / this.zoomLevel;
+                        const worldDeltaX = (deltaX / window.innerWidth) * viewSize * aspect * 2;
+                        const worldDeltaY = -(deltaY / window.innerHeight) * viewSize * 2;
+                        
+                        this.cameraPosition.x -= worldDeltaX;
+                        this.cameraPosition.y -= worldDeltaY;
+                        this.updateCamera();
+                        
+                        this.lastMousePos.set(e.clientX, e.clientY);
+                    }
+                });
+
+                canvas.addEventListener('mouseup', () => {
+                    this.isDragging = false;
+                    canvas.style.cursor = 'default';
+                });
+
+                canvas.addEventListener('mouseleave', () => {
+                    this.isDragging = false;
+                    canvas.style.cursor = 'default';
+                });
+
+                // Zoom with mouse wheel
+                canvas.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const zoomSpeed = 0.1;
+                    const zoomDelta = e.deltaY > 0 ? -zoomSpeed : zoomSpeed;
+                    this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoomLevel + zoomDelta));
+                    this.updateCamera();
+                });
+
+                // Arrow keys for zoom
+                window.addEventListener('keydown', (e) => {
+                    this.keys[e.key] = true;
+                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        const zoomSpeed = 0.1;
+                        const zoomDelta = e.key === 'ArrowUp' ? zoomSpeed : -zoomSpeed;
+                        this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoomLevel + zoomDelta));
+                        this.updateCamera();
+                    }
+                });
+
+                window.addEventListener('keyup', (e) => {
+                    this.keys[e.key] = false;
+                });
+            }
+
+            updateCamera() {
+                const aspect = window.innerWidth / window.innerHeight;
+                const viewSize = 2000 / this.zoomLevel;
+                
+                this.camera.left = -viewSize * aspect;
+                this.camera.right = viewSize * aspect;
+                this.camera.top = viewSize;
+                this.camera.bottom = -viewSize;
+                this.camera.position.copy(this.cameraPosition);
+                this.camera.updateProjectionMatrix();
+            }
+
+            async connectMetaMask() {
+                if (typeof window.ethereum === 'undefined') {
+                    alert('MetaMask is not installed. Please install MetaMask to continue.');
+                    return;
+                }
+
+                try {
+                    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    if (accounts.length === 0) {
+                        alert('No accounts found. Please unlock MetaMask.');
+                        return;
+                    }
+
+                    this.currentWallet = accounts[0];
+                    
+                    // Check for Sandbox Avatars
+                    const nftResult = await this.nftChecker.checkSandboxNFTs(this.currentWallet);
+                    this.hasSandboxNFTs = nftResult.hasSandboxNFTs;
+                    this.availableAvatars = nftResult.avatars || [];
+                    
+                    if (this.availableAvatars.length > 0) {
+                        console.log(`✅ Found ${this.availableAvatars.length} Sandbox Avatar(s)!`);
+                        // Show avatar selection modal
+                        this.showAvatarSelection(this.availableAvatars);
+                    } else {
+                        console.log('No Sandbox Avatars found - will create default');
+                        // Show avatar selection with option to create default
+                        this.showAvatarSelection([]);
+                    }
+                } catch (error) {
+                    console.error('MetaMask connection error:', error);
+                    alert('Failed to connect MetaMask: ' + error.message);
+                }
+            }
+
+            async spawnPlayer(walletID) {
+                // Wait for avatar selection if not already selected
+                if (!this.selectedAvatar) {
+                    return; // Will be called again after avatar selection
+                }
+
+                const occupied = Array.from(this.players.keys()).map(w => {
+                    const avatar = this.players.get(w);
+                    // Updated for 16px tiles: 128 cols, 112 rows
+                    return { id: `tile_${Math.floor((avatar.position.x + 1024) / 16)}_${Math.floor((926 - avatar.position.y) / 16)}` };
+                });
+                const available = this.tiles.filter(t => !occupied.some(o => o.id === t.id));
+                
+                if (available.length === 0) {
+                    alert('No available tiles. Maximum players reached.');
+                    return;
+                }
+
+                // Randomly place on map
+                const tile = available[Math.floor(Math.random() * available.length)];
+                
+                // Use avatar color or generate random
+                let color;
+                if (this.selectedAvatar.isDefault) {
+                    color = this.selectedAvatar.color;
+                } else {
+                    // Generate color from avatar or random
+                    color = new THREE.Color().setHSL(Math.random(), 0.7, 0.5);
+                }
+
+                const playerData = {
+                    walletID: walletID,
+                    x: tile.x,
+                    y: tile.y,
+                    color: `#${color.getHexString()}`,
+                    stamina: 100,
+                    inventory: [],
+                    avatar: this.selectedAvatar.name || 'Default',
+                    avatarImage: this.selectedAvatar.image_url || this.selectedAvatar.image || null
+                };
+
+                this.addPlayer(playerData);
+                
+                // Focus camera on player after a short delay (so player is visible)
+                setTimeout(() => {
+                    this.focusOnAvatar(tile.x, tile.y);
+                }, 100);
+
+                if (this.wsConnection && this.wsConnection.readyState === WebSocket.OPEN) {
+                    this.wsConnection.send(JSON.stringify({ type: 'join', data: playerData }));
+                }
+
+                const walletDisplay = document.getElementById('wallet-id');
+                walletDisplay.textContent = `${walletID.slice(0, 6)}...${walletID.slice(-4)}`;
+                walletDisplay.style.color = '#4CAF50';
+                
+                // Show NFT status
+                if (this.hasSandboxNFTs) {
+                    walletDisplay.textContent += ' 🎮'; // Add icon if has Sandbox NFTs
+                    walletDisplay.title = 'Has Sandbox NFTs!';
+                }
+                
+                document.getElementById('player-count').textContent = this.players.size;
+            }
+
+            addPlayer(playerData) {
+                if (this.players.has(playerData.walletID)) return;
+
+                // Create avatar mesh - exactly 1 grid square (16px × 16px × 16px)
+                const geometry = new THREE.BoxGeometry(16, 16, 16);
+                const color = new THREE.Color(playerData.color);
+                const material = new THREE.MeshStandardMaterial({
+                    color: color,
+                    emissive: color,
+                    emissiveIntensity: 0.3
+                });
+
+                // If avatar has image, try to use it as texture
+                if (playerData.avatarImage) {
+                    const loader = new THREE.TextureLoader();
+                    loader.load(
+                        playerData.avatarImage,
+                        (texture) => {
+                            material.map = texture;
+                            material.needsUpdate = true;
+                        },
+                        undefined,
+                        (error) => {
+                            console.warn('Failed to load avatar image:', error);
+                        }
+                    );
+                }
+
+                const avatar = new THREE.Mesh(geometry, material);
+                // Position at exact tile center - z position at 8 to center in grid square
+                avatar.position.set(playerData.x, playerData.y, 8);
+
+                // Create small label with avatar name or wallet - positioned above icon
+                const displayName = playerData.avatar || `${playerData.walletID.slice(0, 6)}...${playerData.walletID.slice(-4)}`;
+                
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.width = 128;
+                canvas.height = 32;
+                context.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = '#ffffff';
+                context.font = '12px Arial';
+                context.textAlign = 'center';
+                context.fillText(displayName, canvas.width / 2, canvas.height / 2 + 4);
+
+                const texture = new THREE.CanvasTexture(canvas);
+                const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture }));
+                // Position above the icon (icon is at z=8, so place label at z=25, and y offset upward)
+                sprite.position.set(playerData.x, playerData.y + 12, 25);
+                sprite.scale.set(40, 10, 1);
+
+                avatar.userData.label = sprite;
+                avatar.userData.avatarName = displayName;
+                this.playerGroup.add(avatar);
+                this.playerGroup.add(sprite);
+                this.players.set(playerData.walletID, avatar);
+
+                document.getElementById('player-count').textContent = this.players.size;
+            }
+
+            removePlayer(walletID) {
+                const avatar = this.players.get(walletID);
+                if (!avatar) return;
+                if (avatar.userData.label) this.playerGroup.remove(avatar.userData.label);
+                this.playerGroup.remove(avatar);
+                this.players.delete(walletID);
+                document.getElementById('player-count').textContent = this.players.size;
+            }
+
+            showAvatarSelection(avatars) {
+                const modal = document.getElementById('avatar-modal');
+                const container = document.getElementById('avatars-container');
+                container.innerHTML = '';
+
+                // Display found avatars
+                if (avatars.length > 0) {
+                    avatars.forEach((avatar, index) => {
+                        const avatarCard = document.createElement('div');
+                        avatarCard.style.cssText = 'border: 2px solid #444; border-radius: 8px; padding: 10px; cursor: pointer; text-align: center; transition: all 0.3s;';
+                        avatarCard.onmouseover = () => avatarCard.style.borderColor = '#4CAF50';
+                        avatarCard.onmouseout = () => avatarCard.style.borderColor = '#444';
+                        
+                        const img = document.createElement('img');
+                        img.src = avatar.image_url || avatar.image || 'https://via.placeholder.com/150';
+                        img.style.cssText = 'width: 100%; height: 150px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;';
+                        img.onerror = () => img.src = 'https://via.placeholder.com/150';
+                        
+                        const name = document.createElement('div');
+                        name.textContent = avatar.name || `Avatar #${avatar.identifier || index + 1}`;
+                        name.style.cssText = 'font-size: 12px; color: #aaa; margin-top: 5px;';
+                        
+                        avatarCard.appendChild(img);
+                        avatarCard.appendChild(name);
+                        avatarCard.onclick = () => this.selectAvatar(avatar);
+                        container.appendChild(avatarCard);
+                    });
+                } else {
+                    const noAvatars = document.createElement('div');
+                    noAvatars.style.cssText = 'grid-column: 1 / -1; text-align: center; color: #888; padding: 20px;';
+                    noAvatars.textContent = 'No Sandbox Avatars found in your wallet';
+                    container.appendChild(noAvatars);
+                }
+
+                // Setup buttons
+                document.getElementById('create-default-avatar').onclick = () => this.createDefaultAvatar();
+                document.getElementById('close-avatar-modal').onclick = () => {
+                    modal.style.display = 'none';
+                };
+
+                modal.style.display = 'block';
+            }
+
+            selectAvatar(avatar) {
+                this.selectedAvatar = avatar;
+                document.getElementById('avatar-modal').style.display = 'none';
+                console.log('Selected avatar:', avatar);
+                // Place icon on map, then spawn player
+                this.placeAvatarIcon();
+                this.spawnPlayer(this.currentWallet);
+            }
+
+            createDefaultAvatar() {
+                // Create a default avatar object
+                this.selectedAvatar = {
+                    name: 'Default Avatar',
+                    image: null,
+                    isDefault: true,
+                    color: new THREE.Color().setHSL(Math.random(), 0.7, 0.5)
+                };
+                document.getElementById('avatar-modal').style.display = 'none';
+                console.log('Created default avatar');
+                // Place icon on map, then spawn player
+                this.placeAvatarIcon();
+                this.spawnPlayer(this.currentWallet);
+            }
+
+            placeAvatarIcon() {
+                // Remove existing icon if any
+                if (this.avatarIcon) {
+                    this.scene.remove(this.avatarIcon);
+                }
+
+                // Get random available tile
+                const occupied = Array.from(this.players.keys()).map(w => {
+                    const avatar = this.players.get(w);
+                    return { id: `tile_${Math.floor((avatar.position.x + 1024) / 16)}_${Math.floor((926 - avatar.position.y) / 16)}` };
+                });
+                const available = this.tiles.filter(t => !occupied.some(o => o.id === t.id));
+                
+                if (available.length === 0) {
+                    console.warn('No available tiles for icon placement');
+                    return;
+                }
+
+                const tile = available[Math.floor(Math.random() * available.length)];
+
+                // Create icon exactly 1 grid square (16px × 16px × 16px)
+                // Each grid square is 16px, so icon must be exactly 16px
+                const iconGeometry = new THREE.BoxGeometry(16, 16, 16);
+                const iconColor = this.selectedAvatar.isDefault 
+                    ? this.selectedAvatar.color 
+                    : new THREE.Color().setHSL(Math.random(), 0.7, 0.5);
+                
+                const iconMaterial = new THREE.MeshStandardMaterial({
+                    color: iconColor,
+                    emissive: iconColor,
+                    emissiveIntensity: 0.5
+                });
+
+                this.avatarIcon = new THREE.Mesh(iconGeometry, iconMaterial);
+                // Position at exact tile center (tile.x, tile.y are already the center coordinates)
+                this.avatarIcon.position.set(tile.x, tile.y, 8);
+                
+                // No pulsing - keep it exactly 1 square size
+                this.avatarIcon.userData.originalScale = 1.0;
+                this.avatarIcon.userData.pulseSpeed = 0;
+
+                // No label needed for icon - just the cube itself
+                this.scene.add(this.avatarIcon);
+
+                console.log(`Avatar icon placed at tile: ${tile.id} (${tile.x}, ${tile.y})`);
+            }
+
+            focusOnAvatar(x, y) {
+                // Target position
+                const targetX = x;
+                const targetY = y;
+                const targetZoom = 3.0; // Zoom in closer
+                
+                // Start position
+                const startX = this.cameraPosition.x;
+                const startY = this.cameraPosition.y;
+                const startZoom = this.zoomLevel;
+                
+                // Animation duration (milliseconds)
+                const duration = 1500;
+                const startTime = Date.now();
+                
+                // Easing function (ease out)
+                const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+                
+                const animate = () => {
+                    const elapsed = Date.now() - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    const eased = easeOutCubic(progress);
+                    
+                    // Interpolate position
+                    this.cameraPosition.x = startX + (targetX - startX) * eased;
+                    this.cameraPosition.y = startY + (targetY - startY) * eased;
+                    
+                    // Interpolate zoom
+                    this.zoomLevel = startZoom + (targetZoom - startZoom) * eased;
+                    
+                    // Update camera
+                    this.updateCamera();
+                    
+                    // Continue animation if not complete
+                    if (progress < 1) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        console.log('Camera focused on avatar');
+                    }
+                };
+                
+                animate();
+            }
+
+            toggleGrid() {
+                this.isGridVisible = !this.isGridVisible;
+                this.gridGroup.visible = this.isGridVisible;
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                // Keep icon at exactly 1 grid square size (no animation)
+                if (this.avatarIcon) {
+                    // Ensure it stays at exactly 1.0 scale (1 grid square = 16px)
+                    this.avatarIcon.scale.set(1.0, 1.0, 1.0);
+                }
+                
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+
+        // Start game
+        new Game();
+    </script>
+</body>
+</html>
+
